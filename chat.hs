@@ -20,6 +20,7 @@ import Control.Exception
 import Network
 import Control.Monad
 import Text.Printf
+import System.Directory
 
 {-
 Notes
@@ -194,6 +195,7 @@ checkAddClient server@Server{..} name handle = atomically $ do
             return (Just client)
 -- >>
 
+
 -- <<removeClient
 removeClient :: Server -> ClientName -> IO ()
 removeClient server@Server{..} name = atomically $ do
@@ -204,6 +206,7 @@ removeClient server@Server{..} name = atomically $ do
 -- <<runClient
 runClient :: Server -> Client -> IO ()
 runClient serv@Server{..} client@Client{..} = do
+  createDirectoryIfMissing False clientName
   race server receive
   return ()
  where
