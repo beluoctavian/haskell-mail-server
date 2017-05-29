@@ -75,7 +75,6 @@ newServer = do
 
 -- <<Message
 data Message = Notice String
-             | Tell ClientName String
              | Send ClientName String String
              | Broadcast ClientName String
              | Command String
@@ -195,7 +194,6 @@ handleMessage :: Server -> Client -> Message -> IO Bool
 handleMessage server client@Client{..} message =
   case message of
      Notice msg         -> output $ "*** " ++ msg
-     Tell name msg      -> output $ "*" ++ name ++ "*: " ++ msg
      Send from sbj body -> output $ "From: " ++ from ++ "\nSubject: " ++ sbj ++ "\nBody: " ++ body
      Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
      Command msg ->
