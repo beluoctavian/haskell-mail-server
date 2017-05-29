@@ -21,6 +21,8 @@ import Network
 import Control.Monad
 import Text.Printf
 import System.Directory
+import Utils
+import Data.Char
 
 {-
 Notes
@@ -57,6 +59,7 @@ could try.
 main :: IO ()
 main = withSocketsDo $ do
   server <- newServer
+  createDirectoryIfMissing False "files"
   sock <- listenOn (PortNumber (fromIntegral port))
   printf "Listening on port %d\n" port
   forever $ do
@@ -206,7 +209,7 @@ removeClient server@Server{..} name = atomically $ do
 -- <<runClient
 runClient :: Server -> Client -> IO ()
 runClient serv@Server{..} client@Client{..} = do
-  createDirectoryIfMissing False clientName
+  createDirectoryIfMissing False ("files/" ++ map toLower clientName)
   race server receive
   return ()
  where
