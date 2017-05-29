@@ -243,11 +243,8 @@ handleMessage server client@Client{..} message =
        case words msg of
            ["/quit"] ->
                return False
-           ('/':_):_ -> do
-               hPutStrLn clientHandle $ "Unrecognised command: " ++ msg
-               return True
            _ -> do
-               atomically $ broadcast server $ Broadcast clientName msg
+               hPutStrLn clientHandle $ "Unrecognised command: " ++ msg
                return True
  where
    output s = do hPutStrLn clientHandle s; return True
