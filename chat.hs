@@ -213,7 +213,7 @@ runClient serv@Server{..} client@Client{..} = do
         subject <- hGetLine clientHandle
         hPutStrLn clientHandle "Body: "
         body <- hGetLine clientHandle
-        atomically $ sendToName serv who (Send who subject body)
+        atomically $ sendToName serv who (Send clientName subject body)
         return True
       _ -> do
           atomically $ sendMessage client (Command msg)
@@ -237,7 +237,7 @@ handleMessage server client@Client{..} message =
   case message of
      Notice msg         -> output $ "*** " ++ msg
      Tell name msg      -> output $ "*" ++ name ++ "*: " ++ msg
-     Send name sbj body -> output $ "*" ++ name ++ "*: Subject: " ++ sbj ++ " Body: " ++ body
+     Send from sbj body -> output $ "From: " ++ from ++ "\nSubject: " ++ sbj ++ "\nBody: " ++ body
      Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
      Command msg ->
        case words msg of
