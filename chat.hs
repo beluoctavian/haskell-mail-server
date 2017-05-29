@@ -161,16 +161,6 @@ checkAddClient server@Server{..} name handle = atomically $ do
             return (Just client)
 -- >>
 
-
-
--- tell :: Server -> Client -> ClientName -> String -> IO ()
--- tell server@Server{..} Client{..} who msg = do
---   -- ok <- atomically $ sendToName server who (Tell clientName msg)
---   ok <- writeEmailFile server who (Tell clientName msg)
---   if ok
---      then return ()
---      else hPutStrLn clientHandle (who ++ " is not connected.")
-
 -- <<removeClient
 removeClient :: Server -> ClientName -> IO ()
 removeClient server@Server{..} name = atomically $ do
