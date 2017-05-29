@@ -23,6 +23,11 @@ import Text.Printf
 import System.Directory
 import Utils
 import Data.Char
+import GHC.Conc.Sync
+import Data.Unique.Id
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Time.Clock.POSIX
+
 
 {-
 Notes
@@ -136,9 +141,19 @@ sendToName :: Server -> ClientName -> Message -> STM Bool
 sendToName server@Server{..} name msg = do
   clientmap <- readTVar clients
   case Map.lookup name clientmap of
-    Nothing     -> return False
+    Nothing -> writeEmailFile name msg >> return True
     Just client -> sendMessage client msg >> return True
 -- >>
+
+writeEmailFile :: ClientName ->Message -> STM Bool
+writeEmailFile name message = do
+  time <- round `fmap` (unsafeIOToSTM $ getPOSIXTime)
+
+  case message of
+     Send n s b -> do{
+       (unsafeIOToSTM $ createDirectoryIfMissing False ("files/" ++ name));
+       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") "test");
+     } >> return True
 
 -- -----------------------------------------------------------------------------
 -- The main server
@@ -180,6 +195,15 @@ checkAddClient server@Server{..} name handle = atomically $ do
             return (Just client)
 -- >>
 
+
+
+-- tell :: Server -> Client -> ClientName -> String -> IO ()
+-- tell server@Server{..} Client{..} who msg = do
+--   -- ok <- atomically $ sendToName server who (Tell clientName msg)
+--   ok <- writeEmailFile server who (Tell clientName msg)
+--   if ok
+--      then return ()
+--      else hPutStrLn clientHandle (who ++ " is not connected.")
 
 -- <<removeClient
 removeClient :: Server -> ClientName -> IO ()
