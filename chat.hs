@@ -1,10 +1,3 @@
-{-
-   Adapted from haskell-chat-sever-example which is
-      Copyright (c) 2012, Joseph Adams
-
-   Modifications (c) 2012, Simon Marlow
--}
-
 {-# LANGUAGE RecordWildCards #-}
 module Main where
 
@@ -27,36 +20,8 @@ import GHC.Conc.Sync
 import Data.Unique.Id
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Time.Clock.POSIX
-
-
-{-
-Notes
-
-- protocol:
-    Server: "Name?"
-    Client: <string>
-    -- if <string> is already in use, ask for another name
-    -- Commands:
-    --   /quit                      (exit)
-    --   message...                 (broadcast to all connected users)
-
-- a client needs to both listen for commands from the socket and
-  listen for activity from other clients.  Therefore we're going to
-  need at least two threads per client (for listening to multiple
-  things).  Easiest is to use STM for in-process communication, and to
-  have a receiving thread that listens on the socket and forwards to a
-  TChan.
-
-- Handle all errors properly, be async-exception safe
-
-- Consistency:
-  - if two clients simultaneously kick a third client, only one will be
-    successful
-
-See doc/lab-exercises.tex for some ideas for enhancements that you
-could try.
-
--}
+import Text.Email.Validate
+import qualified Data.ByteString.Char8 as BS
 
 -- <<main
 main :: IO ()
@@ -114,7 +79,6 @@ newServer = do
 
 -- <<Message
 data Message = Notice String
-             | Tell ClientName String
              | Send ClientName String String
              | Broadcast ClientName String
              | Command String
@@ -167,20 +131,23 @@ talk handle server@Server{..} = do
  where
 -- <<readName
   readName = do
-    hPutStrLn handle "What is your name?"
+    hPutStrLn handle "What is your email address?"
     name <- hGetLine handle
-    if null name
-      then readName
-      else mask $ \restore -> do        -- <1>
-             ok <- checkAddClient server name handle
-             case ok of
-               Nothing -> restore $ do  -- <2>
-                  hPrintf handle
-                     "The name %s is in use, please choose another\n" name
-                  readName
-               Just client ->
-                  restore (runClient server client) -- <3>
-                      `finally` removeClient server name
+    if False == isValid (BS.pack name)
+      then do
+        hPutStrLn handle "The email address is invalid, please choose another"
+        readName
+      else if null name
+        then readName
+        else mask $ \restore -> do        -- <1>
+               ok <- checkAddClient server name handle
+               case ok of
+                 Nothing -> restore $ do  -- <2>
+                    hPrintf handle "The email address is in use, please choose another\n"
+                    readName
+                 Just client ->
+                    restore (runClient server client) -- <3>
+                        `finally` removeClient server name
 -- >>
 
 -- <<checkAddClient
@@ -191,7 +158,7 @@ checkAddClient server@Server{..} name handle = atomically $ do
     then return Nothing
     else do client <- newClient name handle
             writeTVar clients $ Map.insert name client clientmap
-            broadcast server  $ Notice (name ++ " has connected")
+            broadcast server  $ Notice (name ++ " is online")
             return (Just client)
 -- >>
 
@@ -209,7 +176,7 @@ checkAddClient server@Server{..} name handle = atomically $ do
 removeClient :: Server -> ClientName -> IO ()
 removeClient server@Server{..} name = atomically $ do
   modifyTVar' clients $ Map.delete name
-  broadcast server $ Notice (name ++ " has disconnected")
+  broadcast server $ Notice (name ++ " is offline")
 -- >>
 
 -- <<runClient
@@ -250,7 +217,6 @@ handleMessage :: Server -> Client -> Message -> IO Bool
 handleMessage server client@Client{..} message =
   case message of
      Notice msg         -> output $ "*** " ++ msg
-     Tell name msg      -> output $ "*" ++ name ++ "*: " ++ msg
      Send from sbj body -> output $ "From: " ++ from ++ "\nSubject: " ++ sbj ++ "\nBody: " ++ body
      Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
      Command msg ->
