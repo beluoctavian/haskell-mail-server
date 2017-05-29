@@ -32,9 +32,7 @@ Notes
     Client: <string>
     -- if <string> is already in use, ask for another name
     -- Commands:
-    --   /tell <string> message...  (single-user tell)
     --   /quit                      (exit)
-    --   /kick <string>             (kick another user)
     --   message...                 (broadcast to all connected users)
 
 - a client needs to both listen for commands from the socket and
@@ -142,13 +140,6 @@ sendToName server@Server{..} name msg = do
     Just client -> sendMessage client msg >> return True
 -- >>
 
-tell :: Server -> Client -> ClientName -> String -> IO ()
-tell server@Server{..} Client{..} who msg = do
-  ok <- atomically $ sendToName server who (Tell clientName msg)
-  if ok
-     then return ()
-     else hPutStrLn clientHandle (who ++ " is not connected.")
-
 kick :: Server -> ClientName -> ClientName -> STM ()
 kick server@Server{..} who by = do
   clientmap <- readTVar clients
@@ -250,9 +241,6 @@ handleMessage server client@Client{..} message =
      Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
      Command msg ->
        case words msg of
-           ["/kick", who] -> do
-               atomically $ kick server who clientName
-               return True
            ["/quit"] ->
                return False
            ('/':_):_ -> do
