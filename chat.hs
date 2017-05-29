@@ -17,9 +17,7 @@ import System.Directory
 import Utils
 import Data.Char
 import GHC.Conc.Sync
-import Data.Unique.Id
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Time.Clock.POSIX
 import Text.Email.Validate
 import qualified Data.ByteString.Char8 as BS
 
