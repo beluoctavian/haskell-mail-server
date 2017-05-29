@@ -155,18 +155,23 @@ talk handle server@Server{..} = do
   readName = do
     hPutStrLn handle "What is your name?"
     name <- hGetLine handle
-    if null name
-      then readName
-      else mask $ \restore -> do        -- <1>
-             ok <- checkAddClient server name handle
-             case ok of
-               Nothing -> restore $ do  -- <2>
-                  hPrintf handle
-                     "The name %s is in use, please choose another\n" name
-                  readName
-               Just client ->
-                  restore (runClient server client) -- <3>
-                      `finally` removeClient server name
+    if False Text.Email.Validate.isValid (pack name)
+      then
+        hPrintf handle
+           "The name %s is in use, please choose another\n" name
+        readName
+      else if null name
+        then readName
+        else mask $ \restore -> do        -- <1>
+               ok <- checkAddClient server name handle
+               case ok of
+                 Nothing -> restore $ do  -- <2>
+                    hPrintf handle
+                       "The name %s is in use, please choose another\n" name
+                    readName
+                 Just client ->
+                    restore (runClient server client) -- <3>
+                        `finally` removeClient server name
 -- >>
 
 -- <<checkAddClient
