@@ -113,8 +113,9 @@ writeEmailFile name message = do
 
   case message of
      Send n s b -> do{
+  
        (unsafeIOToSTM $ createDirectoryIfMissing False ("files/" ++ name));
-       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") "test");
+       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") ("From: " ++ n ++ "\nSubject: " ++ s ++ "\nBody: " ++ b));
      } >> return True
 
 -- -----------------------------------------------------------------------------
