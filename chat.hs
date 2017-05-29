@@ -149,13 +149,6 @@ tell server@Server{..} Client{..} who msg = do
      then return ()
      else hPutStrLn clientHandle (who ++ " is not connected.")
 
-send :: Server -> Client -> ClientName -> String -> String -> IO ()
-send server@Server{..} Client{..} who sbj msg = do
-  ok <- atomically $ sendToName server who (Send clientName sbj msg)
-  if ok
-     then return ()
-     else hPutStrLn clientHandle (who ++ " is not connected.")
-
 kick :: Server -> ClientName -> ClientName -> STM ()
 kick server@Server{..} who by = do
   clientmap <- readTVar clients
