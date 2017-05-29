@@ -140,16 +140,6 @@ sendToName server@Server{..} name msg = do
     Just client -> sendMessage client msg >> return True
 -- >>
 
-kick :: Server -> ClientName -> ClientName -> STM ()
-kick server@Server{..} who by = do
-  clientmap <- readTVar clients
-  case Map.lookup who clientmap of
-    Nothing ->
-      void $ sendToName server by (Notice $ who ++ " is not connected")
-    Just victim -> do
-      writeTVar (clientKicked victim) $ Just ("by " ++ by)
-      void $ sendToName server by (Notice $ "you kicked " ++ who)
-
 -- -----------------------------------------------------------------------------
 -- The main server
 
