@@ -112,6 +112,7 @@ newServer = do
 -- <<Message
 data Message = Notice String
              | Tell ClientName String
+             | Send ClientName String String
              | Broadcast ClientName String
              | Command String
 -- >>
@@ -144,6 +145,13 @@ sendToName server@Server{..} name msg = do
 tell :: Server -> Client -> ClientName -> String -> IO ()
 tell server@Server{..} Client{..} who msg = do
   ok <- atomically $ sendToName server who (Tell clientName msg)
+  if ok
+     then return ()
+     else hPutStrLn clientHandle (who ++ " is not connected.")
+
+send :: Server -> Client -> ClientName -> String -> String -> IO ()
+send server@Server{..} Client{..} who sbj msg = do
+  ok <- atomically $ sendToName server who (Send clientName sbj msg)
   if ok
      then return ()
      else hPutStrLn clientHandle (who ++ " is not connected.")
@@ -215,7 +223,17 @@ runClient serv@Server{..} client@Client{..} = do
  where
   receive = forever $ do
     msg <- hGetLine clientHandle
-    atomically $ sendMessage client (Command msg)
+    case words msg of
+      ["/send", who] -> do
+        hPutStrLn clientHandle "Subject: "
+        subject <- hGetLine clientHandle
+        hPutStrLn clientHandle "Body: "
+        body <- hGetLine clientHandle
+        atomically $ sendToName serv who (Send who subject body)
+        return True
+      _ -> do
+          atomically $ sendMessage client (Command msg)
+          return True
 
   server = join $ atomically $ do
     k <- readTVar clientKicked
@@ -235,14 +253,12 @@ handleMessage server client@Client{..} message =
   case message of
      Notice msg         -> output $ "*** " ++ msg
      Tell name msg      -> output $ "*" ++ name ++ "*: " ++ msg
+     Send name sbj body -> output $ "*" ++ name ++ "*: Subject: " ++ sbj ++ " Body: " ++ body
      Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
      Command msg ->
        case words msg of
            ["/kick", who] -> do
                atomically $ kick server who clientName
-               return True
-           "/tell" : who : what -> do
-               tell server client who (unwords what)
                return True
            ["/quit"] ->
                return False
