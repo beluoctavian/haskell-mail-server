@@ -23,6 +23,7 @@ import Text.Printf
 import System.Directory
 import Utils
 import Data.Char
+import Data.ByteString.Char8
 
 {-
 Notes
