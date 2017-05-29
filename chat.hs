@@ -145,9 +145,10 @@ talk handle server@Server{..} = do
                  Nothing -> restore $ do  -- <2>
                     hPrintf handle "The email address is in use, please choose another\n"
                     readName
-                 Just client ->
+                 Just client -> do{
                     restore (runClient server client) -- <3>
                         `finally` removeClient server name
+                 }
 -- >>
 
 -- <<checkAddClient
@@ -162,16 +163,6 @@ checkAddClient server@Server{..} name handle = atomically $ do
             return (Just client)
 -- >>
 
-
-
--- tell :: Server -> Client -> ClientName -> String -> IO ()
--- tell server@Server{..} Client{..} who msg = do
---   -- ok <- atomically $ sendToName server who (Tell clientName msg)
---   ok <- writeEmailFile server who (Tell clientName msg)
---   if ok
---      then return ()
---      else hPutStrLn clientHandle (who ++ " is not connected.")
-
 -- <<removeClient
 removeClient :: Server -> ClientName -> IO ()
 removeClient server@Server{..} name = atomically $ do
@@ -179,10 +170,17 @@ removeClient server@Server{..} name = atomically $ do
   broadcast server $ Notice (name ++ " is offline")
 -- >>
 
+readFilesFromDirectory :: Client -> IO ()
+readFilesFromDirectory client@Client{..} = (getDirectoryContents ("files/"++clientName)) >>=  
+           filterM (fmap not . doesDirectoryExist) >>=
+           mapM_ (hPutStrLn clientHandle)
+
+
 -- <<runClient
 runClient :: Server -> Client -> IO ()
 runClient serv@Server{..} client@Client{..} = do
-  createDirectoryIfMissing False ("files/" ++ map toLower clientName)
+  readFilesFromDirectory client  
+  -- createDirectoryIfMissing False ("files/" ++ map toLower clientName)
   race server receive
   return ()
  where
