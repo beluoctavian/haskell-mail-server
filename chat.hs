@@ -207,12 +207,17 @@ runClient serv@Server{..} client@Client{..} = do
     msg <- hGetLine clientHandle
     case words msg of
       ["/send", who] -> do
-        hPutStrLn clientHandle "Subject: "
-        subject <- hGetLine clientHandle
-        hPutStrLn clientHandle "Body: "
-        body <- hGetLine clientHandle
-        atomically $ sendToName serv who (Send clientName subject body)
-        return True
+        if False == isValid (BS.pack who)
+          then do
+            hPutStrLn clientHandle "The email address is invalid"
+            return False
+          else do
+            hPutStrLn clientHandle "Subject: "
+            subject <- hGetLine clientHandle
+            hPutStrLn clientHandle "Body: "
+            body <- hGetLine clientHandle
+            atomically $ sendToName serv who (Send clientName subject body)
+            return True
       _ -> do
           atomically $ sendMessage client (Command msg)
           return True
