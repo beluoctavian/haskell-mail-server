@@ -14,7 +14,6 @@ import Network
 import Control.Monad
 import Text.Printf
 import System.Directory
-import Utils
 import Data.Char
 import GHC.Conc.Sync
 import Data.Time.Clock.POSIX (getPOSIXTime)
