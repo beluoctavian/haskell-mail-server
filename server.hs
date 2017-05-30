@@ -175,11 +175,13 @@ getAbsDirectoryContents dir =
 readFilesFromDirectory :: Client -> IO ()
 readFilesFromDirectory client@Client{..} = do {
       directoryExists <- doesDirectoryExist ("files/"++clientName);
-      if directoryExists then 
+      if directoryExists then do{
+            hPutStrLn clientHandle "Unread emails:\n";
            (getAbsDirectoryContents ("files/"++clientName))
               >>= filterM(fmap not .doesDirectoryExist)
               >>= mapM readFile
               >>= mapM_ (hPutStrLn clientHandle)
+          }
       else
         return ()
 }
