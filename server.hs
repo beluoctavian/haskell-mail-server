@@ -90,12 +90,12 @@ data Message = Notice String
 broadcast :: Server -> Message -> STM ()
 broadcast Server{..} msg = do
   clientmap <- readTVar clients
-  mapM_ (\client -> sendMessage client msg) (Map.elems clientmap)
+  mapM_ (\client -> sendEmail client msg) (Map.elems clientmap)
 -- >>
 
--- <<sendMessage
-sendMessage :: Client -> Message -> STM ()
-sendMessage Client{..} msg =
+-- <<sendEmail
+sendEmail :: Client -> Message -> STM ()
+sendEmail Client{..} msg =
   writeTChan clientSendChan msg
 -- >>
 
@@ -105,7 +105,7 @@ sendToName server@Server{..} name msg = do
   clientmap <- readTVar clients
   case Map.lookup name clientmap of
     Nothing -> writeEmailFile name msg >> return True
-    Just client -> sendMessage client msg >> return True
+    Just client -> sendEmail client msg >> return True
 -- >>
 
 writeEmailFile :: ClientName ->Message -> STM Bool
@@ -203,6 +203,9 @@ runClient serv@Server{..} client@Client{..} = do
   return ()
  where
   receive = forever $ do
+    hPutStrLn clientHandle "\nAvailable commands:"
+    hPutStrLn clientHandle "/send <email_address> --Send an email"
+    hPutStrLn clientHandle "/quit --Exit\n"
     msg <- hGetLine clientHandle
     case words msg of
       ["/send", who] -> do
@@ -218,7 +221,7 @@ runClient serv@Server{..} client@Client{..} = do
             atomically $ sendToName serv who (Send clientName subject body)
             return True
       _ -> do
-          atomically $ sendMessage client (Command msg)
+          atomically $ sendEmail client (Command msg)
           return True
 
   server = join $ atomically $ do
