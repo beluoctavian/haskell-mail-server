@@ -20,6 +20,8 @@ import GHC.Conc.Sync
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Text.Email.Validate
 import qualified Data.ByteString.Char8 as BS
+import Data.List
+import System.FilePath ((</>))
 
 -- <<main
 main :: IO ()
@@ -110,12 +112,10 @@ sendToName server@Server{..} name msg = do
 writeEmailFile :: ClientName ->Message -> STM Bool
 writeEmailFile name message = do
   time <- round `fmap` (unsafeIOToSTM $ getPOSIXTime)
-
   case message of
      Send n s b -> do{
-  
        (unsafeIOToSTM $ createDirectoryIfMissing False ("files/" ++ name));
-       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") ("From: " ++ n ++ "\nSubject: " ++ s ++ "\nBody: " ++ b));
+       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") ("From: " ++ n ++ "\nSubject: " ++ s ++ "\nBody: " ++ b ++ "\n------------------------------------------\n"));
      } >> return True
 
 -- -----------------------------------------------------------------------------
@@ -169,17 +169,37 @@ removeClient server@Server{..} name = atomically $ do
   broadcast server $ Notice (name ++ " is offline")
 -- >>
 
+getAbsDirectoryContents :: FilePath -> IO [FilePath]
+getAbsDirectoryContents dir =
+  getDirectoryContents dir >>= mapM (canonicalizePath . (dir </>))
+
 readFilesFromDirectory :: Client -> IO ()
-readFilesFromDirectory client@Client{..} = (getDirectoryContents ("files/"++clientName)) >>=  
-           filterM (fmap not . doesDirectoryExist) >>=
-           mapM_ (hPutStrLn clientHandle)
+readFilesFromDirectory client@Client{..} = do {
+      directoryExists <- doesDirectoryExist ("files/"++clientName);
+      if directoryExists then 
+           (getAbsDirectoryContents ("files/"++clientName))
+              >>= filterM(fmap not .doesDirectoryExist)
+              >>= mapM readFile
+              >>= mapM_ (hPutStrLn clientHandle)
+      else
+        return ()
+}
+
+removeEmailDirectory :: Client -> IO()
+removeEmailDirectory client@Client{..} = do{
+  directoryExists <- doesDirectoryExist ("files/"++clientName);
+  if directoryExists then 
+    removeDirectoryRecursive ("files/"++clientName)
+    else
+  return ()
+}
 
 
 -- <<runClient
 runClient :: Server -> Client -> IO ()
 runClient serv@Server{..} client@Client{..} = do
   readFilesFromDirectory client  
-  -- createDirectoryIfMissing False ("files/" ++ map toLower clientName)
+  removeEmailDirectory client
   race server receive
   return ()
  where
