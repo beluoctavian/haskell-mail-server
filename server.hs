@@ -1,74 +1,253 @@
+{-# LANGUAGE RecordWildCards #-}
+module Main where
+
+import ConcurrentUtils
+
+import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Concurrent.Async
+import qualified Data.Map as Map
+import Data.Map (Map)
+import System.IO
+import Control.Exception
 import Network
 import Control.Monad
-import Control.Concurrent
-import System.IO
 import Text.Printf
-import Control.Exception
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import ConcurrentUtils (forkFinally)
+import System.Directory
+import Utils
+import Data.Char
+import GHC.Conc.Sync
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Text.Email.Validate
+import qualified Data.ByteString.Char8 as BS
+import Data.List
+import System.FilePath ((</>))
 
 -- <<main
+main :: IO ()
 main = withSocketsDo $ do
+  server <- newServer
+  createDirectoryIfMissing False "files"
   sock <- listenOn (PortNumber (fromIntegral port))
   printf "Listening on port %d\n" port
-  factor <- atomically $ newTVar 2                               -- <1>
   forever $ do
-    (handle, host, port) <- accept sock
-    printf "Accepted connection from %s: %s\n" host (show port)
-    forkFinally (talk handle factor) (\_ -> hClose handle)       -- <2>
+      (handle, host, port) <- accept sock
+      printf "Accepted connection from %s: %s\n" host (show port)
+      forkFinally (talk handle server) (\_ -> hClose handle)
 
 port :: Int
 port = 44444
 -- >>
 
--- <<talk
-talk :: Handle -> TVar Integer -> IO ()
-talk h factor = do
-  hSetBuffering h LineBuffering
-  c <- atomically newTChan              -- <1>
-  race (server h factor c) (receive h c)  -- <2>
-  return ()
+
+-- ---------------------------------------------------------------------------
+-- Data structures and initialisation
+
+-- <<Client
+type ClientName = String
+
+data Client = Client
+  { clientName     :: ClientName
+  , clientHandle   :: Handle
+  , clientKicked   :: TVar (Maybe String)
+  , clientSendChan :: TChan Message
+  }
 -- >>
 
--- <<receive
-receive :: Handle -> TChan String -> IO ()
-receive h c = forever $ do
-  line <- hGetLine h
-  atomically $ writeTChan c line
+-- <<newClient
+newClient :: ClientName -> Handle -> STM Client
+newClient name handle = do
+  c <- newTChan
+  k <- newTVar Nothing
+  return Client { clientName     = name
+                , clientHandle   = handle
+                , clientSendChan = c
+                , clientKicked   = k
+                }
 -- >>
 
--- <<server
-server :: Handle -> TVar Integer -> TChan String -> IO ()
-server h factor c = do
-  f <- atomically $ readTVar factor     -- <1>
-  hPrintf h "Current factor: %d\n" f    -- <2>
-  loop f                                -- <3>
+-- <<Server
+data Server = Server
+  { clients :: TVar (Map ClientName Client)
+  }
+
+newServer :: IO Server
+newServer = do
+  c <- newTVarIO Map.empty
+  return Server { clients = c }
+-- >>
+
+-- <<Message
+data Message = Notice String
+             | Send ClientName String String
+             | Broadcast ClientName String
+             | Command String
+-- >>
+
+-- -----------------------------------------------------------------------------
+-- Basic operations
+
+-- <<broadcast
+broadcast :: Server -> Message -> STM ()
+broadcast Server{..} msg = do
+  clientmap <- readTVar clients
+  mapM_ (\client -> sendMessage client msg) (Map.elems clientmap)
+-- >>
+
+-- <<sendMessage
+sendMessage :: Client -> Message -> STM ()
+sendMessage Client{..} msg =
+  writeTChan clientSendChan msg
+-- >>
+
+-- <<sendToName
+sendToName :: Server -> ClientName -> Message -> STM Bool
+sendToName server@Server{..} name msg = do
+  clientmap <- readTVar clients
+  case Map.lookup name clientmap of
+    Nothing -> writeEmailFile name msg >> return True
+    Just client -> sendMessage client msg >> return True
+-- >>
+
+writeEmailFile :: ClientName ->Message -> STM Bool
+writeEmailFile name message = do
+  time <- round `fmap` (unsafeIOToSTM $ getPOSIXTime)
+  case message of
+     Send n s b -> do{
+       (unsafeIOToSTM $ createDirectoryIfMissing False ("files/" ++ name));
+       (unsafeIOToSTM $ writeFile ("files/" ++ name ++ "/"++(show time)++".mail") ("From: " ++ n ++ "\nSubject: " ++ s ++ "\nBody: " ++ b ++ "\n------------------------------------------\n"));
+     } >> return True
+
+-- -----------------------------------------------------------------------------
+-- The main server
+
+talk :: Handle -> Server -> IO ()
+talk handle server@Server{..} = do
+  hSetNewlineMode handle universalNewlineMode
+      -- Swallow carriage returns sent by telnet clients
+  hSetBuffering handle LineBuffering
+  readName
  where
-  loop f = do
-    action <- atomically $ do           -- <4>
-      f' <- readTVar factor             -- <5>
-      if (f /= f')                      -- <6>
-         then return (newfactor f')     -- <7>
-         else do
-           l <- readTChan c             -- <8>
-           return (command f l)         -- <9>
-    action
-
-  newfactor f = do                      -- <10>
-    hPrintf h "new factor: %d\n" f
-    loop f
-
-  command f s                           -- <11>
-   = case s of
-      "end" ->
-        hPutStrLn h ("Thank you for using the " ++
-                     "Haskell doubling service.")         -- <12>
-      '*':s -> do
-        atomically $ writeTVar factor (read s :: Integer) -- <13>
-        loop f
-      line  -> do
-        hPutStrLn h (show (f * (read line :: Integer)))
-        loop f
+-- <<readName
+  readName = do
+    hPutStrLn handle "What is your email address?"
+    name <- hGetLine handle
+    if False == isValid (BS.pack name)
+      then do
+        hPutStrLn handle "The email address is invalid, please choose another"
+        readName
+      else if null name
+        then readName
+        else mask $ \restore -> do        -- <1>
+               ok <- checkAddClient server name handle
+               case ok of
+                 Nothing -> restore $ do  -- <2>
+                    hPrintf handle "The email address is in use, please choose another\n"
+                    readName
+                 Just client -> do{
+                    restore (runClient server client) -- <3>
+                        `finally` removeClient server name
+                 }
 -- >>
 
+-- <<checkAddClient
+checkAddClient :: Server -> ClientName -> Handle -> IO (Maybe Client)
+checkAddClient server@Server{..} name handle = atomically $ do
+  clientmap <- readTVar clients
+  if Map.member name clientmap
+    then return Nothing
+    else do client <- newClient name handle
+            writeTVar clients $ Map.insert name client clientmap
+            broadcast server  $ Notice (name ++ " is online")
+            return (Just client)
+-- >>
+
+-- <<removeClient
+removeClient :: Server -> ClientName -> IO ()
+removeClient server@Server{..} name = atomically $ do
+  modifyTVar' clients $ Map.delete name
+  broadcast server $ Notice (name ++ " is offline")
+-- >>
+
+getAbsDirectoryContents :: FilePath -> IO [FilePath]
+getAbsDirectoryContents dir =
+  getDirectoryContents dir >>= mapM (canonicalizePath . (dir </>))
+
+readFilesFromDirectory :: Client -> IO ()
+readFilesFromDirectory client@Client{..} = do {
+      directoryExists <- doesDirectoryExist ("files/"++clientName);
+      if directoryExists then 
+           (getAbsDirectoryContents ("files/"++clientName))
+              >>= filterM(fmap not .doesDirectoryExist)
+              >>= mapM readFile
+              >>= mapM_ (hPutStrLn clientHandle)
+      else
+        return ()
+}
+
+removeEmailDirectory :: Client -> IO()
+removeEmailDirectory client@Client{..} = do{
+  directoryExists <- doesDirectoryExist ("files/"++clientName);
+  if directoryExists then 
+    removeDirectoryRecursive ("files/"++clientName)
+    else
+  return ()
+}
+
+
+-- <<runClient
+runClient :: Server -> Client -> IO ()
+runClient serv@Server{..} client@Client{..} = do
+  readFilesFromDirectory client  
+  removeEmailDirectory client
+  race server receive
+  return ()
+ where
+  receive = forever $ do
+    msg <- hGetLine clientHandle
+    case words msg of
+      ["/send", who] -> do
+        if False == isValid (BS.pack who)
+          then do
+            hPutStrLn clientHandle "The email address is invalid"
+            return False
+          else do
+            hPutStrLn clientHandle "Subject: "
+            subject <- hGetLine clientHandle
+            hPutStrLn clientHandle "Body: "
+            body <- hGetLine clientHandle
+            atomically $ sendToName serv who (Send clientName subject body)
+            return True
+      _ -> do
+          atomically $ sendMessage client (Command msg)
+          return True
+
+  server = join $ atomically $ do
+    k <- readTVar clientKicked
+    case k of
+      Just reason -> return $
+        hPutStrLn clientHandle $ "You have been kicked: " ++ reason
+      Nothing -> do
+        msg <- readTChan clientSendChan
+        return $ do
+            continue <- handleMessage serv client msg
+            when continue $ server
+-- >>
+
+-- <<handleMessage
+handleMessage :: Server -> Client -> Message -> IO Bool
+handleMessage server client@Client{..} message =
+  case message of
+     Notice msg         -> output $ "*** " ++ msg
+     Send from sbj body -> output $ "From: " ++ from ++ "\nSubject: " ++ sbj ++ "\nBody: " ++ body
+     Broadcast name msg -> output $ "<" ++ name ++ ">: " ++ msg
+     Command msg ->
+       case words msg of
+           ["/quit"] ->
+               return False
+           _ -> do
+               hPutStrLn clientHandle $ "Unrecognised command: " ++ msg
+               return True
+ where
+   output s = do hPutStrLn clientHandle s; return True
+-- >>
